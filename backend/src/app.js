@@ -50,6 +50,31 @@ function createStaticBoundary(root) {
     };
 }
 
+// 登录墙放行的公开路径（登录页本身、健康检查、静态登录页资源）
+const PUBLIC_PATHS = new Set(['/login', '/logout', '/favicon.ico', '/api/health', '/templates/login.html']);
+
+// 静态资源放行：题库/脚本/样式/音频本身不含账号数据，放行可避免会话过期时页面脚本 302 变白屏
+const PUBLIC_ASSET_EXTENSIONS = /\.(?:css|js|mjs|map|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|otf|eot|mp3|m4a|ogg|wav|json|txt|csv|md)$/i;
+
+function isPublicAsset(req) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    return PUBLIC_ASSET_EXTENSIONS.test(req.path);
+}
+
+function createLoginGate() {
+    return (req, res, next) => {
+        if (req.session && req.session.user) return next();
+        if (req.path.startsWith('/api/auth/')) return next();
+        if (PUBLIC_PATHS.has(req.path)) return next();
+        if (isPublicAsset(req)) return next();
+        if (req.path.startsWith('/api/')) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        if (req.accepts('html')) return res.redirect('/login');
+        return res.status(401).type('text/plain').send('Authentication required');
+    };
+}
+
 function createApp(options = {}) {
     const app = express();
     const repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
@@ -105,6 +130,24 @@ function createApp(options = {}) {
             secure: cookieSecure
         }
     }));
+
+    // ---- 未登录不得访问任何页面与静态资源 ----
+    app.use(createLoginGate());
+
+    app.get('/login', (_req, res) => {
+        res.sendFile(path.join(repoRoot, 'templates', 'login.html'));
+    });
+
+    app.get('/logout', (req, res) => {
+        const done = () => {
+            res.clearCookie(cookieName, { httpOnly: true, sameSite: 'lax', secure: cookieSecure });
+            res.redirect('/login');
+        };
+        if (req.session) return req.session.destroy(done);
+        return done();
+    });
+    // ---- 登录墙结束 ----
+
     app.use('/api/practice-records', noStore, createPracticeRecordsRouter({
         store: practiceStore
     }));
@@ -142,6 +185,7 @@ function createApp(options = {}) {
 
 module.exports = {
     createApp,
+    createLoginGate,
     createDefaultSessionStore,
     parseBoolean,
     resolveSessionSecret

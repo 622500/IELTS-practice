@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: ielts-practice
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: node scripts/migrate.mjs && node src/server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # server.js 默认监听 127.0.0.1，必须是 0.0.0.0 才能被 Render 探测到
+      - key: HOST
+        value: 0.0.0.0
+      # Render 免费子域自带 HTTPS，所以要开 secure cookie + 信任反代
+      - key: COOKIE_SECURE
+        value: true
+      - key: TRUST_PROXY
+        value: true
+      # 只允许第一个账号注册；注册完成后改成 disabled
+      - key: REGISTRATION_MODE
+        value: first-user
+      # Render 自动生成 64 位随机串，满足 >=32 字符的强制校验
+      - key: SESSION_SECRET
+        generateValue: true
+      # Neon 的 Pooled 连接串，创建时在 Render 面板里粘贴
+      - key: DATABASE_URL
+        sync: false

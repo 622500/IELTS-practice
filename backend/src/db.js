@@ -8,10 +8,16 @@ function createPool(options = {}) {
     const baseConfig = process.env.DATABASE_URL
         ? { connectionString: process.env.DATABASE_URL }
         : {};
-    return new Pool({
+    const pool = new Pool({
         ...baseConfig,
         ...options
     });
+    // pg 连接池的空闲连接被服务端关闭时会 emit('error')；没有监听器会让 Node 进程整体崩溃
+    // （数据库重启/云平台维护后必现）。这里接管错误，只让当前这一次查询失败。
+    pool.on('error', (error) => {
+        console.error('[db] idle client error:', error && (error.code || error.message));
+    });
+    return pool;
 }
 
 const pool = createPool();
